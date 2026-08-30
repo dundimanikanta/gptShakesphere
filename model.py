@@ -46,22 +46,70 @@ def get_batch(split):
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     return x, y
+
+
+
+class Head(nn.Module):
+
+    def __init__(self,head_size):
+        super().__init__()
+        ## defing the 3 layer q, k , v 
+        self.query = nn.Linear(n_embd,head_size,bias=False) #(n_embd,head_size)
+        self.key = nn.Linear(n_embd,head_size,bias=False)   #(n_embd,head_size)
+        self.value = nn.Linear(n_embd,head_size,bias=False) #(n_embd,head_size)
+
+        ## defining it as buffer it is a constant not a trainable parameter 
+        self.register_buffer('trill', torch.tril(torch.ones(head_size,head_size)))
+
+
+    def  forward(self,x):
+
+        B,T,C = x.shape   #(C== n_embd)
+        q = self.query(x)  # (B,T,head_size)
+        k  = self.key(x)   # (B,T,head_size)
+
+        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5
+        #(B,T,T) = (B,T,Head_szie) @ (B, Head_size, T)
+        ## and setting the variance is 1
+        # we normalize the wei 
+        wei  = wei.masked_fill(self.trill[:T,:T]==0,float('-inf'))
+        wei  = F.softmax(wei,dim=-1)
+        # getting the value from value layer
+        v = self.value(x) # (B,T,head_size)
+
+        # matrix mul
+        out = wei @ v  #(B,T,T) @ # (B,T,head_size)
+
+        return out # (B,T, Head_Size) 
+
+       
+
+
+
+
+
+##defining the initial model 
+
 class BigramLanguageModel(nn.Module):
 
     def __init__(self,vocab_size):
         super().__init__()
-        self.token_embedding_table = nn.Embedding(vocab_size,n_embd) #(65,n_embd)
+        self.token_embedding_table = nn.Embedding(vocab_size,n_embd) #(vocab_size,n_embd)
         self.position_embedding_table = nn.Embedding(n_embd,n_embd) #(n_embd,#n_embd)
-        self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,65)
-
+        ### the self-attention mechanism
+        self.sa_head = Head(n_embd) #(n_embd,head_size)
+        ##### 
+        self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,vocab_size)
+       
     def forward(self,idx,targets=None):
 
         ## doing the embedding using the embedding dimension
         B,T = idx.shape
         token_emb = self.token_embedding_table(idx)
         pos_emb =  self.token_embedding_table(torch.arange(T))
-        x = token_emb + pos_emb 
-
+        x = token_emb + pos_emb  #(B,T,n_embd)
+        ## passing the x through the self attention 
+        x = self.sa_head(x)
         ## getting the logits from the final layer
         logits = self.lm_head(x)
 
