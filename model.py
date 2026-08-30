@@ -49,6 +49,19 @@ def get_batch(split):
     return x, y
 
 
+
+class Block(nn.Module):
+
+    def __init__(self,n_embd,num_heads):
+        super().__init__()
+        self.multiHeadedAttention = MultiHeadAttention(num_heads,n_embd//num_heads)
+        self.feedForward = FeedFoward(n_embd)
+
+    def forward(self,x):
+         x = self.multiHeadedAttention(x)
+         self.out = self.feedForward(x)
+         return self.out
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
@@ -94,9 +107,19 @@ class Head(nn.Module):
        
 
 
+## This is the feedforward which we will be using after the 
+## conacatination of the multi headed attention
+class FeedFoward(nn.Module):
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, n_embd),
+            nn.ReLU(),
+        )
 
-
-
+    def forward(self, x):
+        return self.net(x)
+    
 ##defining the initial model 
 
 class BigramLanguageModel(nn.Module):
@@ -105,9 +128,20 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size,n_embd) #(vocab_size,n_embd)
         self.position_embedding_table = nn.Embedding(block_size,n_embd) #(block_size,#n_embd)
-        ### the self-attention mechanism
-        self.sa_head =MultiHeadAttention(num_heads,n_embd//num_heads) #(n_embd,#nembd)
-        ##### 
+        # ### the self-attention mechanism
+        # self.sa_head =MultiHeadAttention(num_heads,n_embd//num_heads) #(n_embd,#nembd)
+        # ##### 
+        # self.feedforward = FeedFoward(n_embd)
+        
+
+        ## Now we are repreating the above step 3 times 
+        ## so we have build a new Layer which does the above two steps 
+        ## multi attention & feedforward 3 times 
+        self.blocks = nn.Sequential(Block(n_embd,num_heads),
+                                   Block(n_embd,num_heads),
+                                   Block(n_embd,num_heads)
+                                   )
+        
         self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,vocab_size)
        
     def forward(self,idx,targets=None):
@@ -117,8 +151,15 @@ class BigramLanguageModel(nn.Module):
         token_emb = self.token_embedding_table(idx)
         pos_emb =  self.position_embedding_table(torch.arange(T))
         x = token_emb + pos_emb  #(B,T,n_embd)
+
+        x= self.blocks(x)
+        ## replacing the below with the above block 
+        ##____________________
         ## passing the x through the self attention 
-        x = self.sa_head(x)
+        # x = self.sa_head(x)
+        # ## Feed forward after the multi headed attention is concatanated
+        # x = self.feedforward(x)
+        ##_____________________
         ## getting the logits from the final layer
         logits = self.lm_head(x)
 
