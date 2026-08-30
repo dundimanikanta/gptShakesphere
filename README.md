@@ -14,3 +14,4 @@ Validation/train loss at step 49500 as features are added incrementally:
 | + multi-headed self-attention | 2.1834 | 2.2122 |
 | + feedforward | 2.1099 | 2.1911 |
 | + adding blocks | 2.1261 | 2.2355 |
+| +residual connections + 4xfeed forward inner width  | 1.9475 | 2.0843 |
