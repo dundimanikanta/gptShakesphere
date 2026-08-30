@@ -4,6 +4,13 @@ from torch.nn import functional as F
 
 torch.manual_seed(1337)
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+print("Using device:", device)
+
+if device == 'cuda':
+    print("GPU:", torch.cuda.get_device_name(0))
+
 # read it in to inspect it
 with open('shakesphere.txt', 'r', encoding='utf-8') as f:
     text = f.read()
@@ -38,6 +45,7 @@ step_interval = 500
 eval_iters = 200 
 n_embd = 32 
 num_heads = 4 
+dropout = 0.2 
 
 lr = 1e-3
 
@@ -46,7 +54,7 @@ def get_batch(split):
     ix = torch.randint(len(data) - block_size, (batch_size,))
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
-    return x, y
+    return x.to(device), y.to(device)
 
 
 
@@ -56,21 +64,26 @@ class Block(nn.Module):
         super().__init__()
         self.multiHeadedAttention = MultiHeadAttention(num_heads,n_embd//num_heads)
         self.feedForward = FeedFoward(n_embd)
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+
 
     def forward(self,x):
-         x = x+ self.multiHeadedAttention(x)
-         self.out = x +  self.feedForward(x)
-         return self.out
+         x = x + self.multiHeadedAttention(self.ln1(x))
+         x = x +  self.feedForward(self.ln2(x))
+         return x
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_embd, n_embd)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.proj(out)
+        out = self.dropout(out)
         return out
 
 
@@ -83,6 +96,7 @@ class Head(nn.Module):
         self.key = nn.Linear(n_embd,head_size,bias=False)   #(n_embd,head_size)
         self.value = nn.Linear(n_embd,head_size,bias=False) #(n_embd,head_size)
 
+        self.dropout = nn.Dropout(dropout)
         ## defining it as buffer it is a constant not a trainable parameter 
         self.register_buffer('trill', torch.tril(torch.ones(block_size,block_size)))
 
@@ -99,6 +113,7 @@ class Head(nn.Module):
         # we normalize the wei 
         wei  = wei.masked_fill(self.trill[:T,:T]==0,float('-inf'))
         wei  = F.softmax(wei,dim=-1)
+        wei = self.dropout(wei)
         # getting the value from value layer
         v = self.value(x) # (B,T,head_size)
 
@@ -119,6 +134,7 @@ class FeedFoward(nn.Module):
             nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
             nn.Linear(4 * n_embd, n_embd),
+            nn.Dropout(dropout)
         )
 
     def forward(self, x):
@@ -126,7 +142,7 @@ class FeedFoward(nn.Module):
     
 ##defining the initial model 
 
-class BigramLanguageModel(nn.Module):
+class TransformerLanguageModel(nn.Module):
 
     def __init__(self,vocab_size):
         super().__init__()
@@ -145,7 +161,7 @@ class BigramLanguageModel(nn.Module):
                                    Block(n_embd,num_heads),
                                    Block(n_embd,num_heads)
                                    )
-        
+        self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,vocab_size)
        
     def forward(self,idx,targets=None):
@@ -153,7 +169,7 @@ class BigramLanguageModel(nn.Module):
         ## doing the embedding using the embedding dimension
         B,T = idx.shape
         token_emb = self.token_embedding_table(idx)
-        pos_emb =  self.position_embedding_table(torch.arange(T))
+        pos_emb =  self.position_embedding_table(torch.arange(T,device=idx.device))
         x = token_emb + pos_emb  #(B,T,n_embd)
 
         x= self.blocks(x)
@@ -165,6 +181,7 @@ class BigramLanguageModel(nn.Module):
         # x = self.feedforward(x)
         ##_____________________
         ## getting the logits from the final layer
+        x = self.ln_f(x)
         logits = self.lm_head(x)
 
         if targets is None:
@@ -187,14 +204,14 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
         
-m = BigramLanguageModel(vocab_size)
+m = TransformerLanguageModel(vocab_size).to(device)
 
 @torch.no_grad()
 def estimate_loss():
     out = {}
     m.eval()
     for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
+        losses = torch.zeros(eval_iters,device=device)
         for k in range(eval_iters):
             X, Y = get_batch(split)
             logits, loss = m(X, Y)
@@ -231,5 +248,5 @@ print(loss)
 
 
 
-idx = torch.zeros((1,1), dtype=torch.long)                     # start from the newline token
+idx = torch.zeros((1,1), dtype=torch.long,device=device)                     # start from the newline token
 print(decode(m.generate(idx, max_new_tokens=1000)[0].tolist()))

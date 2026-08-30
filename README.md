@@ -15,3 +15,5 @@ Validation/train loss at step 49500 as features are added incrementally:
 | + feedforward | 2.1099 | 2.1911 |
 | + adding blocks | 2.1261 | 2.2355 |
 | +residual connections + 4xfeed forward inner width  | 1.9475 | 2.0843 |
+| +adding layer norm | 1.9181 | 2.0621 |
+| + dropout layers |  2.0049 | 2.0966 |
