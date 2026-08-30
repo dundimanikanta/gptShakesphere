@@ -37,6 +37,7 @@ max_steps = 50000
 step_interval = 500
 eval_iters = 200 
 n_embd = 32 
+num_heads = 4 
 
 lr = 1e-3
 
@@ -47,6 +48,14 @@ def get_batch(split):
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     return x, y
 
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)
 
 
 class Head(nn.Module):
@@ -59,7 +68,7 @@ class Head(nn.Module):
         self.value = nn.Linear(n_embd,head_size,bias=False) #(n_embd,head_size)
 
         ## defining it as buffer it is a constant not a trainable parameter 
-        self.register_buffer('trill', torch.tril(torch.ones(head_size,head_size)))
+        self.register_buffer('trill', torch.tril(torch.ones(block_size,block_size)))
 
 
     def  forward(self,x):
@@ -95,9 +104,9 @@ class BigramLanguageModel(nn.Module):
     def __init__(self,vocab_size):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size,n_embd) #(vocab_size,n_embd)
-        self.position_embedding_table = nn.Embedding(n_embd,n_embd) #(n_embd,#n_embd)
+        self.position_embedding_table = nn.Embedding(block_size,n_embd) #(block_size,#n_embd)
         ### the self-attention mechanism
-        self.sa_head = Head(n_embd) #(n_embd,head_size)
+        self.sa_head =MultiHeadAttention(num_heads,n_embd//num_heads) #(n_embd,#nembd)
         ##### 
         self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,vocab_size)
        
@@ -106,7 +115,7 @@ class BigramLanguageModel(nn.Module):
         ## doing the embedding using the embedding dimension
         B,T = idx.shape
         token_emb = self.token_embedding_table(idx)
-        pos_emb =  self.token_embedding_table(torch.arange(T))
+        pos_emb =  self.position_embedding_table(torch.arange(T))
         x = token_emb + pos_emb  #(B,T,n_embd)
         ## passing the x through the self attention 
         x = self.sa_head(x)
