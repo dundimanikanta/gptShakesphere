@@ -2,6 +2,17 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+import os
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+### for saving in the drive. 
+checkpoint_path = '/content/drive/MyDrive/gpt_shakesphere/model.pt'
+
+#### for local 
+# checkpoint_path = 'model.pt'
+
 torch.manual_seed(1337)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -205,43 +216,50 @@ class TransformerLanguageModel(nn.Module):
         
 m = TransformerLanguageModel(vocab_size).to(device)
 
-@torch.no_grad()
-def estimate_loss():
-    out = {}
-    m.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters,device=device)
-        for k in range(eval_iters):
-            X, Y = get_batch(split)
-            logits, loss = m(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    m.train()
-    return out
+if os.path.exists(checkpoint_path):
+    print(f"Loading weights from {checkpoint_path}")
+    m.load_state_dict(torch.load(checkpoint_path, map_location=device))
+else:
+    print("No checkpoint found, training from scratch")
+    @torch.no_grad()
+    def estimate_loss():
+        out = {}
+        m.eval()
+        for split in ['train', 'val']:
+            losses = torch.zeros(eval_iters,device=device)
+            for k in range(eval_iters):
+                X, Y = get_batch(split)
+                logits, loss = m(X, Y)
+                losses[k] = loss.item()
+            out[split] = losses.mean()
+        m.train()
+        return out
 
-#defining the optimizer
-optimizer = torch.optim.Adam(m.parameters(),lr)
-
-
-for step in range(max_steps):
-
-    if step % step_interval ==0:
-        losses = estimate_loss()
-        print(f"step {step}: train {losses['train']:.4f}, val {losses['val']:.4f}")
+    #defining the optimizer
+    optimizer = torch.optim.Adam(m.parameters(),lr)
 
 
-    xb,yb = get_batch('train')
-    # forward propagation of the network
-    logits,loss = m(xb,yb)
-    # setting the gradients to zero before doing the back propagation
-    optimizer.zero_grad(set_to_none=True)
-    # backpropagation
-    loss.backward()
-    # updating the weights using the optimizer adam
-    optimizer.step()
+    for step in range(max_steps):
 
-# printing the final loss
-print(loss)
+        if step % step_interval ==0:
+            losses = estimate_loss()
+            print(f"step {step}: train {losses['train']:.4f}, val {losses['val']:.4f}")
+
+
+        xb,yb = get_batch('train')
+        # forward propagation of the network
+        logits,loss = m(xb,yb)
+        # setting the gradients to zero before doing the back propagation
+        optimizer.zero_grad(set_to_none=True)
+        # backpropagation
+        loss.backward()
+        # updating the weights using the optimizer adam
+        optimizer.step()
+
+    # printing the final loss
+    print(loss)
+    torch.save(m.state_dict(), checkpoint_path)
+    print(f"Saved weights to {checkpoint_path}")
 
 
 
