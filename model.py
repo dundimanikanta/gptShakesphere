@@ -38,16 +38,18 @@ n = int( 0.9*data_length)
 train_data= data[:n]
 val_data= data[n:]
 vocab_size = len(chars)
-batch_size = 4
-block_size = 8
-max_steps = 50000
+batch_size = 64
+block_size = 256
+max_steps = 5000
 step_interval = 500
 eval_iters = 200 
-n_embd = 32 
-num_heads = 4 
+n_embd = 384 
+num_heads = 6
 dropout = 0.2 
+n_layer = 6
 
-lr = 1e-3
+
+lr = 3e-4
 
 def get_batch(split):
     data = train_data if split == 'train' else val_data
@@ -157,10 +159,7 @@ class TransformerLanguageModel(nn.Module):
         ## Now we are repreating the above step 3 times 
         ## so we have build a new Layer which does the above two steps 
         ## multi attention & feedforward 3 times 
-        self.blocks = nn.Sequential(Block(n_embd,num_heads),
-                                   Block(n_embd,num_heads),
-                                   Block(n_embd,num_heads)
-                                   )
+        self.blocks = nn.Sequential(*[Block(n_embd, num_heads) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd,vocab_size) #(n_embd,vocab_size)
        
